@@ -180,8 +180,53 @@ def train_model_step(corpus, args, model, criterion, epoch, lr):
             start_time = time.time()
     # Loop over epochs.
 
+def adam_step(corpus, args, model, criterion, epoch, lr):
+    # Turn on training mode which enables dropout.
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    train_data = batchify(corpus.train, args.batch_size)
+    model.train()
+    total_loss = 0.0
+    start_time = time.time()
+    ntokens = len(corpus.vocab)
+    hidden = model.init_hidden(args.batch_size)
+    for batch, i in enumerate(range(0, train_data.size(0) - 1, args.seq_len)):
+        data, targets = get_batch(train_data, i)
+        # Starting each batch, we detach the hidden state from how it was previously produced.
+        # If we didn't, the model would try backpropagating all the way to start of the dataset.
+        optimizer.zero_grad()
+        hidden = repackage_hidden(hidden)
+        output, hidden = model(data, hidden)
+        loss = criterion(output, targets)
+        loss.backward()
+        optimizer.step()
+        # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
+        paramters_in_tensor = [p for p in model.parameters() if p.requires_grad == True]
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
+        for p in paramters_in_tensor:
+            p.data.add_(p.grad, alpha=-lr)
 
-def train_model(corpus, args, model, criterion):
+        total_loss += loss.item()
+
+        if batch % args.log_interval == 0 and batch > 0:
+            cur_loss = total_loss / args.log_interval
+            elapsed = time.time() - start_time
+            print(
+                "| epoch {:3d} | {:5d}/{:5d} batches | lr {:02.2f} | ms/batch {:5.2f} | "
+                "loss {:5.2f} | ppl {:8.2f}".format(
+                    epoch,
+                    batch,
+                    len(train_data) // args.seq_len,
+                    lr,
+                    elapsed * 1000 / args.log_interval,
+                    cur_loss,
+                    compute_perplexity(cur_loss),
+                )
+            )
+            total_loss = 0
+            start_time = time.time()
+    # Loop over epochs.
+
+def adam_train(corpus, args, model, criterion):
     best_val_loss = None
     eval_batch_size = 10
     val_data = batchify(corpus.valid, eval_batch_size)
@@ -190,7 +235,7 @@ def train_model(corpus, args, model, criterion):
     try:
         for epoch in range(1, args.epochs + 1):
             epoch_start_time = time.time()
-            train_model_step(corpus, args, model, criterion, epoch=epoch, lr=lr)
+            adam_step(corpus, args, model, criterion, epoch=epoch, lr=lr)
             val_loss = evaluate(model, val_data, criterion)
             print("-" * 89)
             print(
@@ -215,6 +260,41 @@ def train_model(corpus, args, model, criterion):
         print("-" * 89)
         print("Exiting from training early")
 
+        
+def train_model(corpus, args, model, criterion):
+    best_val_loss = None
+    eval_batch_size = 10
+    val_data = batchify(corpus.valid, eval_batch_size)
+    lr = args.lr
+    # At any point you can hit Ctrl + C to break out of training early.
+    try:
+        for epoch in range(1, args.epochs + 1):
+            epoch_start_time = time.time()
+            train_model_step(corpus, args, model, criterion, epoch=epoch, lr=lr)
+            # adam_step(corpus, args, model, criterion, epoch=epoch, lr=lr)
+            val_loss = evaluate(model, val_data, criterion)
+            print("-" * 89)
+            print(
+                "| end of epoch {:3d} | time: {:5.2f}s | valid loss {:5.2f} | "
+                "valid ppl {:8.2f}".format(
+                    epoch,
+                    (time.time() - epoch_start_time),
+                    val_loss,
+                    compute_perplexity(val_loss),
+                )
+            )
+            print("-" * 89)
+            # Save the model if the validation loss is the best we've seen so far.
+            if not best_val_loss or val_loss < best_val_loss:
+                with open(args.save, "wb") as f:
+                    torch.save(model, f)
+                best_val_loss = val_loss
+            else:
+                # Anneal the learning rate if no improvement has been seen in the validation dataset.
+                lr /= 4.0
+    except KeyboardInterrupt:
+        print("-" * 89)
+        print("Exiting from training early")
 
 def test_model(corpus, args, model, criterion):  # Load the best saved model.
     model = RNNModel.load_model(args.save)
@@ -253,4 +333,5 @@ if __name__ == "__main__":
     
     criterion = nn.NLLLoss()
     train_model(corpus, args, model, criterion)
+    # adam_train(corpus, args, model, criterion)
     test_model(corpus, args, model, criterion)
