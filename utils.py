@@ -7,8 +7,10 @@ import os
 def get_device():
     if torch.cuda.is_available():
         device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")  # for new Mac M1 or M2 chips
+        
+    # elif torch.backends.mps.is_available():
+        # device = torch.device("mps")  # for new Mac M1 or M2 chips
+        # not a Mac M1
     else:
         device = torch.device("cpu")
     return device

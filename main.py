@@ -1,6 +1,8 @@
 import argparse
 import time
 import math
+import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.onnx
@@ -10,14 +12,34 @@ from utils import get_device, repackage_hidden, make_reproducible
 from rnnlm import RNNModel
 
 
-def init_glove_embeddings(model: RNNModel, glove_path):
+def init_glove_embeddings(glove_path):
     # TODO: implement this function
-    raise NotImplementedError
+    embedding_glove={}
+    words=[]
+    embeddings=[]
+    with open(glove_path, 'rb') as f:
+        for line in f:
+            values = line.split()
+            word = values[0]
+            words.append(word)
+            vector = np.asarray(values[1:],'float32')
+            embeddings.append(vector)
+            embedding_glove[word]=vector
+
+    embeddings_np = np.array(embeddings)
+    words_np = np.array(words)
+    unk_token_embedding =np.zeros((1,embeddings_np.shape[1]))
+    words_np = np.insert(words_np,0,'<unk>')
+    embeddings_np = np.vstack((unk_token_embedding,embeddings_np))
+    return embeddings_np
+    # raise NotImplementedError
 
 
 def compute_perplexity(loss: float):
     # TODO: implement this function
-    raise NotImplementedError
+    # ppl = exp(loss_crossEntropy)
+    return math.exp(loss)
+    # raise NotImplementedError
 
 
 def parse_args():
@@ -132,8 +154,9 @@ def train_model_step(corpus, args, model, criterion, epoch, lr):
         loss.backward()
 
         # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
+        paramters_in_tensor = [p for p in model.parameters() if p.requires_grad == True]
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-        for p in model.parameters():
+        for p in paramters_in_tensor:
             p.data.add_(p.grad, alpha=-lr)
 
         total_loss += loss.item()
@@ -208,6 +231,8 @@ def test_model(corpus, args, model, criterion):  # Load the best saved model.
 
 
 if __name__ == "__main__":
+    # SEED = 244 # There is random seed set in utils.py
+    # torch.manual_seed(SEED)
     args = parse_args()
     make_reproducible(args.seed)
     device = get_device()
@@ -220,6 +245,12 @@ if __name__ == "__main__":
     model = RNNModel(ntokens, args.emsize, args.nhid, args.nlayers, args.dropout).to(
         device
     )
+    
+    # Load pretrained glove embedding
+    glove_path = "./glove.6B.50d.txt"
+    pretrained_glove = init_glove_embeddings(glove_path)
+    model.in_embedder = nn.Embedding.from_pretrained(torch.from_numpy(pretrained_glove).float())
+    
     criterion = nn.NLLLoss()
     train_model(corpus, args, model, criterion)
     test_model(corpus, args, model, criterion)

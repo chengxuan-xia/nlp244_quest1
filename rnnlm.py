@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import numpy as np
 
 class RNNModel(nn.Module):
     def __init__(
@@ -10,8 +10,8 @@ class RNNModel(nn.Module):
         in_embedding_dim,
         n_hidden,
         n_layers,
-        dropout=0.5,
-        rnn_type="elman",  # can be elman, lstm, gru
+        dropout=0.3,
+        rnn_type="gru",  # can be elman, lstm, gru
     ):
         super(RNNModel, self).__init__()
 
@@ -23,10 +23,26 @@ class RNNModel(nn.Module):
                 nonlinearity="tanh",
                 dropout=dropout,
             )
-        else:
+        # else:
             # TODO: implement lstm and gru
             # self.rnn = ...
-            raise NotImplementedError
+        elif rnn_type == "lstm":
+            self.rnn = nn.LSTM(
+                in_embedding_dim,
+                n_hidden,
+                n_layers,
+                dropout=dropout,
+                bidirectional=True,
+                proj_size=0
+            )
+        elif rnn_type == "gru":
+            self.rnn = nn.GRU(
+                in_embedding_dim,
+                n_hidden,
+                n_layers,
+                dropout=dropout
+            )
+            # raise NotImplementedError
         
         self.in_embedder = nn.Embedding(vocab_size, in_embedding_dim)
         self.dropout = nn.Dropout(dropout)
